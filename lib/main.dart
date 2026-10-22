@@ -3,13 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
 
-
 void main() {
   runApp(const WorkoutApp());
 }
 
 // ---------------------------------------------------------------------------
-// 1. Модель данных (со всеми 4 полями + id)
+// 1. Модель данных Exercise
 // ---------------------------------------------------------------------------
 class Exercise {
   final String? id;
@@ -48,14 +47,33 @@ class Exercise {
 }
 
 // ---------------------------------------------------------------------------
-// 2. Сервис для работы с API Spring Boot (CRUD)
+// 2. Сервис для работы с API (Упражнения + Авторизация/Регистрация)
 // ---------------------------------------------------------------------------
 class ApiService {
-  static const String baseUrl = 'http://10.0.2.2:8080/exercises';
+  static const String baseUrl = 'http://10.0.2.2:8080';
 
-  // GET /exercises/all
+
+  final http.Client _client = http.Client();
+
+  // Переменная для хранения куки сессии
+  String? _sessionCookie;
+
+  // Вспомогательный метод для добавления куки в заголовки
+  Map<String, String> _getHeaders({bool isJson = false}) {
+    final headers = <String, String>{};
+    if (isJson) {
+      headers['Content-Type'] = 'application/json; charset=UTF-8';
+    }
+    if (_sessionCookie != null) {
+      headers['cookie'] = _sessionCookie!;
+    }
+    return headers;
+  }
+
+  // --- Упражнения ---
+
   Future<List<Exercise>> getExercises() async {
-    final response = await http.get(Uri.parse('$baseUrl/all'));
+    final response = await _client.get(Uri.parse('$baseUrl/exercises/all'), headers: _getHeaders());
 
     if (response.statusCode == 200) {
       final List<dynamic> body = jsonDecode(utf8.decode(response.bodyBytes));
@@ -65,38 +83,87 @@ class ApiService {
     }
   }
 
-  // POST /exercises/create
   Future<bool> addExercise(Exercise exercise) async {
-    final response = await http.post(
-      Uri.parse('$baseUrl/create'),
-      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+    final response = await _client.post(
+      Uri.parse('$baseUrl/exercises/create'),
+      headers: _getHeaders(isJson: true),
       body: utf8.encode(jsonEncode(exercise.toJson())),
     );
 
     return response.statusCode == 200 || response.statusCode == 201;
   }
 
-  // PUT /exercises/update/{id}
   Future<bool> updateExercise(String id, Exercise exercise) async {
-    final response = await http.put(
-      Uri.parse('$baseUrl/update/$id'),
-      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+    final response = await _client.put(
+      Uri.parse('$baseUrl/exercises/update/$id'),
+      headers: _getHeaders(isJson: true),
       body: utf8.encode(jsonEncode(exercise.toJson())),
     );
 
     return response.statusCode == 200 || response.statusCode == 201;
   }
 
-  // DELETE /exercises/delete/{id}
   Future<bool> deleteExercise(String id) async {
-    final response = await http.delete(
-      Uri.parse('$baseUrl/delete/$id'),
+    final response = await _client.delete(
+      Uri.parse('$baseUrl/exercises/delete/$id'),
+        headers: _getHeaders()
     );
 
     return response.statusCode == 200 || response.statusCode == 204;
   }
+
+  // --- Авторизация и Регистрация ---
+
+  // Регистрация нового пользователя
+  Future<bool> register(String username, String password, int yearOfBirth) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/auth/registration'),
+      headers: _getHeaders(isJson: true),
+      body: jsonEncode({
+        'username': username,
+        'password': password,
+        'yearOfBirth': yearOfBirth,
+      }),
+    );
+
+    return response.statusCode == 200;
+  }
+
+  // Вход (отправляем данные на форму Spring Security /process_login)
+  Future<bool> login(String username, String password) async {
+    try {
+      final response = await _client.post(
+        Uri.parse('$baseUrl/process_login'),
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: {
+          'username': username,
+          'password': password,
+        },
+      );
+      if (response.statusCode == 302 || response.statusCode == 200) {
+        // Сохраняем куку сессии (JSESSIONID) из ответа бэкенда
+        final rawCookie = response.headers['set-cookie'];
+        if (rawCookie != null) {
+          _sessionCookie = rawCookie.split(';').first;
+        }
+
+        final redirectUrl = response.headers['location'] ?? '';
+        if (redirectUrl.contains('error')) {
+          return false;
+        }
+        return true;
+      }
+
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
 }
-//Для отображения видео
+
+// ---------------------------------------------------------------------------
+// 3. Виджет Видеоплеера
+// ---------------------------------------------------------------------------
 class VideoPlayerWidget extends StatefulWidget {
   final String videoUrl;
 
@@ -152,9 +219,181 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// 4. Экран Авторизации (Login)
+// ---------------------------------------------------------------------------
+class LoginScreen extends StatefulWidget {
+  const LoginScreen({super.key});
+
+  @override
+  State<LoginScreen> createState() => _LoginScreenState();
+}
+
+class _LoginScreenState extends State<LoginScreen> {
+  final ApiService _apiService = ApiService();
+  final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
+  bool _isLoading = false;
+
+  void _login() async {
+    setState(() => _isLoading = true);
+    bool success = await _apiService.login(
+      _usernameController.text.trim(),
+      _passwordController.text.trim(),
+    );
+    setState(() => _isLoading = false);
+
+    if (success && mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => ExercisesScreen(apiService: _apiService)),
+      );
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ошибка входа: неверный логин или пароль')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Вход в Workout App')),
+      body: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Center(
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.fitness_center, size: 80, color: Colors.deepPurple),
+                const SizedBox(height: 24),
+                TextField(
+                  controller: _usernameController,
+                  decoration: const InputDecoration(labelText: 'Имя пользователя (Логин)'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _passwordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: 'Пароль'),
+                ),
+                const SizedBox(height: 24),
+                _isLoading
+                    ? const CircularProgressIndicator()
+                    : ElevatedButton(
+                  onPressed: _login,
+                  style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+                  child: const Text('Войти'),
+                ),
+                TextButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (context) => const RegisterScreen()),
+                    );
+                  },
+                  child: const Text('Нет аккаунта? Зарегистрироваться'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
-// 3. Главный интерфейс приложения
+// 5. Экран Регистрации (Register)
+// ---------------------------------------------------------------------------
+class RegisterScreen extends StatefulWidget {
+  const RegisterScreen({super.key});
+
+  @override
+  State<RegisterScreen> createState() => _RegisterScreenState();
+}
+
+class _RegisterScreenState extends State<RegisterScreen> {
+  final ApiService _apiService = ApiService();
+  final _usernameController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _yearController = TextEditingController();
+  bool _isLoading = false;
+
+  void _register() async {
+    final username = _usernameController.text.trim();
+    final password = _passwordController.text.trim();
+    final year = int.tryParse(_yearController.text.trim()) ?? 2000;
+
+    if (username.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Заполните все поля')),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    bool success = await _apiService.register(username, password, year);
+    setState(() => _isLoading = false);
+
+    if (success && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Регистрация успешна! Войдите в систему.')),
+      );
+      Navigator.pop(context); // Возврат на экран входа
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Ошибка регистрации (возможно, логин занят)')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Регистрация')),
+      body: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: Center(
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                TextField(
+                  controller: _usernameController,
+                  decoration: const InputDecoration(labelText: 'Имя пользователя'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _passwordController,
+                  obscureText: true,
+                  decoration: const InputDecoration(labelText: 'Пароль'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _yearController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Год рождения'),
+                ),
+                const SizedBox(height: 24),
+                _isLoading
+                    ? const CircularProgressIndicator()
+                    : ElevatedButton(
+                  onPressed: _register,
+                  style: ElevatedButton.styleFrom(minimumSize: const Size.fromHeight(50)),
+                  child: const Text('Зарегистрироваться'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 6. Главный интерфейс приложения (WorkoutApp & ExercisesScreen)
 // ---------------------------------------------------------------------------
 class WorkoutApp extends StatelessWidget {
   const WorkoutApp({super.key});
@@ -168,20 +407,23 @@ class WorkoutApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         useMaterial3: true,
       ),
-      home: const ExercisesScreen(),
+      // Устанавливаем экран авторизации стартовым
+      home: const LoginScreen(),
     );
   }
 }
 
 class ExercisesScreen extends StatefulWidget {
-  const ExercisesScreen({super.key});
+
+  final ApiService apiService;
+
+  const ExercisesScreen({super.key, required this.apiService});
 
   @override
   State<ExercisesScreen> createState() => _ExercisesScreenState();
 }
 
 class _ExercisesScreenState extends State<ExercisesScreen> {
-  final ApiService _apiService = ApiService();
   late Future<List<Exercise>> _exercisesFuture;
 
   @override
@@ -192,11 +434,10 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
 
   void _refreshExercises() {
     setState(() {
-      _exercisesFuture = _apiService.getExercises();
+      _exercisesFuture = widget.apiService.getExercises();
     });
   }
 
-  // Диалог добавления / редактирования упражнения
   void _showExerciseDialog({Exercise? exercise}) {
     final isEditing = exercise != null;
 
@@ -215,35 +456,23 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
             children: [
               TextField(
                 controller: nameController,
-                decoration: const InputDecoration(
-                  labelText: 'Название *',
-                  hintText: 'например, Жим лежа',
-                ),
+                decoration: const InputDecoration(labelText: 'Название *', hintText: 'например, Жим лежа'),
               ),
               const SizedBox(height: 8),
               TextField(
                 controller: muscleController,
-                decoration: const InputDecoration(
-                  labelText: 'Группа мышц *',
-                  hintText: 'например, Грудь',
-                ),
+                decoration: const InputDecoration(labelText: 'Группа мышц *', hintText: 'например, Грудь'),
               ),
               const SizedBox(height: 8),
               TextField(
                 controller: descController,
                 maxLines: 2,
-                decoration: const InputDecoration(
-                  labelText: 'Описание',
-                  hintText: 'Базовое упражнение...',
-                ),
+                decoration: const InputDecoration(labelText: 'Описание', hintText: 'Базовое упражнение...'),
               ),
               const SizedBox(height: 8),
               TextField(
                 controller: videoController,
-                decoration: const InputDecoration(
-                  labelText: 'Ссылка на видео',
-                  hintText: 'https://example.com/video',
-                ),
+                decoration: const InputDecoration(labelText: 'Ссылка на видео', hintText: 'https://example.com/video'),
               ),
             ],
           ),
@@ -272,9 +501,9 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
 
               bool success;
               if (isEditing && exercise.id != null) {
-                success = await _apiService.updateExercise(exercise.id!, updatedExercise);
+                success = await widget.apiService.updateExercise(exercise.id!, updatedExercise);
               } else {
-                success = await _apiService.addExercise(updatedExercise);
+                success = await widget.apiService.addExercise(updatedExercise);
               }
 
               if (context.mounted) {
@@ -282,9 +511,7 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
                 if (success) {
                   _refreshExercises();
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(isEditing ? 'Упражнение обновлено' : 'Упражнение добавлено'),
-                    ),
+                    SnackBar(content: Text(isEditing ? 'Упражнение обновлено' : 'Упражнение добавлено')),
                   );
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -300,7 +527,6 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
     );
   }
 
-  // Подтверждение удаления
   void _confirmDelete(Exercise exercise) {
     if (exercise.id == null) return;
 
@@ -317,7 +543,7 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
             onPressed: () async {
-              final success = await _apiService.deleteExercise(exercise.id!);
+              final success = await widget.apiService.deleteExercise(exercise.id!);
               if (context.mounted) {
                 Navigator.pop(context);
                 if (success) {
@@ -339,7 +565,6 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
     );
   }
 
-  // Просмотр полной информации об упражнении
   void _showDetailsModal(Exercise exercise) {
     showModalBottomSheet(
       context: context,
@@ -380,7 +605,7 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
             ),
             const Divider(),
             const SizedBox(height: 8),
-            Text('Группа мышц:', style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
+            const Text('Группа мышц:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
             Text(exercise.muscleGroup, style: const TextStyle(fontSize: 16)),
             const SizedBox(height: 12),
             if (exercise.description != null && exercise.description!.isNotEmpty) ...[
@@ -388,15 +613,9 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
               Text(exercise.description!, style: const TextStyle(fontSize: 16)),
               const SizedBox(height: 12),
             ],
-            // ... внутри _showDetailsModal(Exercise exercise) ...
-
             if (exercise.linkVideo != null && exercise.linkVideo!.isNotEmpty) ...[
-              const Text(
-                'Видео выполнения:',
-                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey),
-              ),
+              const Text('Видео выполнения:', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.grey)),
               const SizedBox(height: 8),
-              // Вместо SelectableText вставляем сам плеер:
               VideoPlayerWidget(videoUrl: exercise.linkVideo!),
               const SizedBox(height: 12),
             ],
@@ -413,6 +632,16 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
       appBar: AppBar(
         title: const Text('Workout App — Упражнения'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            tooltip: 'Выйти',
+            onPressed: () {
+              Navigator.pushReplacement(
+                context,
+                MaterialPageRoute(builder: (context) => const LoginScreen()),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _refreshExercises,
