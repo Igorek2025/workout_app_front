@@ -16,6 +16,7 @@ class Exercise {
   final String muscleGroup;
   final String? description;
   final String? linkVideo;
+  final bool isGeneral;
 
   Exercise({
     this.id,
@@ -23,6 +24,7 @@ class Exercise {
     required this.muscleGroup,
     this.description,
     this.linkVideo,
+    this.isGeneral = false,
   });
 
   factory Exercise.fromJson(Map<String, dynamic> json) {
@@ -32,6 +34,7 @@ class Exercise {
       muscleGroup: json['muscleGroup'],
       description: json['description'],
       linkVideo: json['linkVideo'],
+      isGeneral: json['owner'] == null,
     );
   }
 
@@ -587,20 +590,25 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.edit, color: Colors.blue),
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _showExerciseDialog(exercise: exercise);
-                  },
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.red),
-                  onPressed: () {
-                    Navigator.pop(context);
-                    _confirmDelete(exercise);
-                  },
-                ),
+                // Если упражнение личное — показываем кнопки управления, если общее — выводим звездочку
+                if (!exercise.isGeneral) ...[
+                  IconButton(
+                    icon: const Icon(Icons.edit, color: Colors.blue),
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _showExerciseDialog(exercise: exercise);
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.red),
+                    onPressed: () {
+                      Navigator.pop(context);
+                      _confirmDelete(exercise);
+                    },
+                  ),
+                ] else ...[
+                  const Icon(Icons.star, color: Colors.amber, size: 28),
+                ],
               ],
             ),
             const Divider(),
@@ -692,7 +700,12 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
                   ),
                   title: Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold)),
                   subtitle: Text('Группа мышц: ${item.muscleGroup}'),
-                  trailing: Row(
+                  trailing: item.isGeneral
+                      ? const Tooltip(
+                    message: 'Базовое упражнение',
+                    child: Icon(Icons.star, color: Colors.amber),
+                  )
+                      : Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(
