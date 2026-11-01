@@ -186,7 +186,7 @@ class _MainScreenState extends State<MainScreen> {
   void initState() {
     super.initState();
     _screens = [
-      ExercisesScreen(apiService: widget.apiService), // План
+      PlanCalendarTab(apiService: widget.apiService), // План (календарь)// План
       const NutritionTabPlaceholder(),                // Питание
       const StatisticsTabPlaceholder(),               // Статистика
       const HistoryTabPlaceholder(),                  // История
@@ -432,6 +432,691 @@ class HomeDashboardTab extends StatelessWidget {
     );
   }
 }
+class PlanCalendarTab extends StatefulWidget {
+  final ApiService apiService;
+
+  const PlanCalendarTab({super.key, required this.apiService});
+
+  @override
+  State<PlanCalendarTab> createState() => _PlanCalendarTabState();
+}
+
+class _PlanCalendarTabState extends State<PlanCalendarTab> {
+  static const _months = [
+    'Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь',
+    'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь',
+  ];
+  static const _weekdays = ['ПН', 'ВТ', 'СР', 'ЧТ', 'ПТ', 'СБ', 'ВС'];
+
+  // ВРЕМЕННЫЕ данные для вида. Позже заменить на план с бэкенда.
+  static const _demoCycle = ['Спина', 'Грудь', 'Ноги', 'Руки', 'Кардио', 'Отдых', 'Ноги'];
+  String _workoutFor(DateTime d) => _demoCycle[d.day % _demoCycle.length];
+
+  late DateTime _month; // первое число показываемого месяца
+  late DateTime _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _month = DateTime(now.year, now.month, 1);
+    _selected = DateTime(now.year, now.month, now.day);
+  }
+
+  void _changeMonth(int delta) {
+    setState(() => _month = DateTime(_month.year, _month.month + delta, 1));
+  }
+
+  bool _sameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  @override
+  Widget build(BuildContext context) {
+    final daysInMonth = DateTime(_month.year, _month.month + 1, 0).day;
+    final leading = _month.weekday - 1; // сколько дней прошлого месяца показать
+    final cells = List.generate(
+      leading + daysInMonth,
+          (i) => DateTime(_month.year, _month.month, 1 - leading + i),
+    );
+
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Color(0xFF0D0D26), Color(0xFF07070F)],
+        ),
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            children: [
+              const SizedBox(height: 12),
+
+              // Логотип
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.directions_run, color: Colors.white, size: 28),
+                  const SizedBox(width: 8),
+                  Text(
+                    'SPORTIK',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 2,
+                      color: Colors.white.withValues(alpha: 0.95),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              // Кнопка "Добавить тренировку" -> список упражнений
+              Container(
+                width: double.infinity,
+                height: 52,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(16),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF5B3FD0), Color(0xFF3F2A9E)],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF5B3FD0).withValues(alpha: 0.35),
+                      blurRadius: 14,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(16),
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => NewWorkoutScreen(apiService: widget.apiService),
+                        ),
+                      );
+                    },
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.add, color: Colors.white),
+                        SizedBox(width: 8),
+                        Text(
+                          'Добавить тренировку',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Заголовок месяца со стрелками
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.chevron_left, color: Colors.grey),
+                    onPressed: () => _changeMonth(-1),
+                  ),
+                  Text(
+                    '${_months[_month.month - 1]} ${_month.year}',
+                    style: const TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.chevron_right, color: Colors.grey),
+                    onPressed: () => _changeMonth(1),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+
+              // Дни недели
+              Row(
+                children: _weekdays
+                    .map((d) => Expanded(
+                  child: Center(
+                    child: Text(
+                      d,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade500,
+                      ),
+                    ),
+                  ),
+                ))
+                    .toList(),
+              ),
+              const SizedBox(height: 8),
+
+              // Сетка дней
+              Expanded(
+                child: GridView.builder(
+                  padding: EdgeInsets.zero,
+                  itemCount: cells.length,
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 7,
+                    childAspectRatio: 0.72,
+                    mainAxisSpacing: 6,
+                  ),
+                  itemBuilder: (context, index) {
+                    final date = cells[index];
+                    final inMonth = date.month == _month.month;
+                    final isSelected = _sameDay(date, _selected);
+
+                    return GestureDetector(
+                      onTap: () => setState(() => _selected = date),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: isSelected ? const Color(0xFF5B3FD0) : Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              '${date.day}',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.w500,
+                                color: isSelected
+                                    ? Colors.white
+                                    : inMonth
+                                    ? Colors.white
+                                    : Colors.grey.shade700,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _workoutFor(date),
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: isSelected
+                                    ? Colors.white
+                                    : inMonth
+                                    ? Colors.grey.shade400
+                                    : Colors.grey.shade700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              // Кнопка "База упражнений" -> старый экран со всеми упражнениями
+              SizedBox(
+                width: double.infinity,
+                height: 52,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    backgroundColor: const Color(0xFF14142B),
+                    side: BorderSide(
+                      color: const Color(0xFF5B6BC0).withValues(alpha: 0.7),
+                      width: 1.5,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                  ),
+                  icon: const Icon(Icons.fitness_center, size: 20),
+                  label: const Text(
+                    'База упражнений',
+                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                  ),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => ExercisesScreen(apiService: widget.apiService),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class NewWorkoutScreen extends StatefulWidget {
+  final ApiService apiService;
+
+  const NewWorkoutScreen({super.key, required this.apiService});
+
+  @override
+  State<NewWorkoutScreen> createState() => _NewWorkoutScreenState();
+}
+
+class _NewWorkoutScreenState extends State<NewWorkoutScreen> {
+  final _nameController = TextEditingController();
+  final List<Exercise> _selected = [];
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickExercises() async {
+    final result = await Navigator.push<List<Exercise>>(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ExercisePickerScreen(
+          apiService: widget.apiService,
+          initiallySelected: _selected,
+        ),
+      ),
+    );
+    if (result != null) {
+      setState(() {
+        _selected
+          ..clear()
+          ..addAll(result);
+      });
+    }
+  }
+
+  void _save() {
+    if (_nameController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Введите название тренировки')),
+      );
+      return;
+    }
+    if (_selected.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Добавьте хотя бы одно упражнение')),
+      );
+      return;
+    }
+    // TODO: отправка на бэкенд, когда он будет готов
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Сохранение на сервере пока не подключено')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0A0A18),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF0D0D26),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        title: const Text('Новая тренировка'),
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF0D0D26), Color(0xFF07070F)],
+          ),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Название тренировки
+                TextField(
+                  controller: _nameController,
+                  style: const TextStyle(color: Colors.white, fontSize: 18),
+                  cursorColor: const Color(0xFF8B7BFF),
+                  decoration: InputDecoration(
+                    labelText: 'Название тренировки',
+                    labelStyle: TextStyle(color: Colors.grey.shade500),
+                    floatingLabelStyle: const TextStyle(color: Color(0xFF8B7BFF)),
+                    filled: true,
+                    fillColor: const Color(0xFF14142B),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFF5B3FD0), width: 1.5),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+
+                // Заголовок "Упражнения" + кнопка +
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Упражнения',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.white,
+                      ),
+                    ),
+                    Material(
+                      color: const Color(0xFF5B3FD0),
+                      shape: const CircleBorder(),
+                      child: InkWell(
+                        customBorder: const CircleBorder(),
+                        onTap: _pickExercises,
+                        child: const Padding(
+                          padding: EdgeInsets.all(8),
+                          child: Icon(Icons.add, color: Colors.white),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Выбранные упражнения
+                Expanded(
+                  child: _selected.isEmpty
+                      ? Center(
+                    child: Text(
+                      'Нажмите +, чтобы добавить упражнения',
+                      style: TextStyle(color: Colors.grey.shade600, fontSize: 15),
+                    ),
+                  )
+                      : ListView.separated(
+                    itemCount: _selected.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final ex = _selected[index];
+                      return Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF14142B),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: 0.06),
+                          ),
+                        ),
+                        child: ListTile(
+                          title: Text(
+                            ex.name,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          subtitle: Text(
+                            ex.muscleGroup,
+                            style: TextStyle(color: Colors.grey.shade500),
+                          ),
+                          trailing: IconButton(
+                            icon: Icon(Icons.close, color: Colors.grey.shade500),
+                            onPressed: () => setState(() => _selected.removeAt(index)),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+                // Сохранить
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF5B3FD0),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    onPressed: _save,
+                    child: const Text(
+                      'Сохранить тренировку',
+                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+class ExercisePickerScreen extends StatefulWidget {
+  final ApiService apiService;
+  final List<Exercise> initiallySelected;
+
+  const ExercisePickerScreen({
+    super.key,
+    required this.apiService,
+    required this.initiallySelected,
+  });
+
+  @override
+  State<ExercisePickerScreen> createState() => _ExercisePickerScreenState();
+}
+
+class _ExercisePickerScreenState extends State<ExercisePickerScreen> {
+  late Future<List<Exercise>> _future;
+  String _category = 'Все';
+  final Map<String, Exercise> _chosen = {};
+
+  String _key(Exercise e) => e.id ?? e.name;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = widget.apiService.getExercises();
+    for (final e in widget.initiallySelected) {
+      _chosen[_key(e)] = e;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0A0A18),
+      appBar: AppBar(
+        backgroundColor: const Color(0xFF0D0D26),
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        surfaceTintColor: Colors.transparent,
+        foregroundColor: Colors.white,
+        title: const Text('Выбор упражнений'),
+      ),
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Color(0xFF0D0D26), Color(0xFF07070F)],
+          ),
+        ),
+        child: FutureBuilder<List<Exercise>>(
+          future: _future,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(
+                child: CircularProgressIndicator(color: Color(0xFF8B7BFF)),
+              );
+            }
+            if (snapshot.hasError) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.error_outline, size: 48, color: Colors.redAccent),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Не удалось загрузить упражнения:\n${snapshot.error}',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () => setState(() {
+                          _future = widget.apiService.getExercises();
+                        }),
+                        child: const Text('Повторить'),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            final all = snapshot.data ?? [];
+            if (all.isEmpty) {
+              return const Center(
+                child: Text('Список упражнений пуст', style: TextStyle(color: Colors.white70)),
+              );
+            }
+
+            final categories = ['Все', ...all.map((e) => e.muscleGroup).toSet()];
+            final shown = _category == 'Все'
+                ? all
+                : all.where((e) => e.muscleGroup == _category).toList();
+
+            return Column(
+              children: [
+                // Фильтры по группам мышц
+                SizedBox(
+                  height: 56,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: categories.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (context, index) {
+                      final c = categories[index];
+                      final selected = c == _category;
+                      return ChoiceChip(
+                        label: Text(c),
+                        selected: selected,
+                        showCheckmark: false,
+                        selectedColor: const Color(0xFF5B3FD0),
+                        backgroundColor: const Color(0xFF14142B),
+                        side: BorderSide.none,
+                        labelStyle: TextStyle(
+                          color: selected ? Colors.white : Colors.grey.shade400,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        onSelected: (_) => setState(() => _category = c),
+                      );
+                    },
+                  ),
+                ),
+
+                // Список упражнений
+                Expanded(
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+                    itemCount: shown.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (context, index) {
+                      final ex = shown[index];
+                      final isChosen = _chosen.containsKey(_key(ex));
+                      return Container(
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF14142B),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: isChosen
+                                ? const Color(0xFF5B3FD0)
+                                : Colors.white.withValues(alpha: 0.06),
+                            width: isChosen ? 1.5 : 1,
+                          ),
+                        ),
+                        child: ListTile(
+                          onTap: () => setState(() {
+                            if (isChosen) {
+                              _chosen.remove(_key(ex));
+                            } else {
+                              _chosen[_key(ex)] = ex;
+                            }
+                          }),
+                          title: Text(
+                            ex.name,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          subtitle: Text(
+                            ex.muscleGroup,
+                            style: TextStyle(color: Colors.grey.shade500),
+                          ),
+                          trailing: Icon(
+                            isChosen ? Icons.check_circle : Icons.add_circle_outline,
+                            color: isChosen ? const Color(0xFF8B7BFF) : Colors.grey.shade600,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+
+                // Кнопка "Готово"
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                  child: SizedBox(
+                    width: double.infinity,
+                    height: 52,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF5B3FD0),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                      onPressed: () => Navigator.pop(context, _chosen.values.toList()),
+                      child: Text(
+                        _chosen.isEmpty ? 'Готово' : 'Готово (${_chosen.length})',
+                        style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+
 
 class WorkoutComingSoonScreen extends StatelessWidget {
   const WorkoutComingSoonScreen({super.key});
