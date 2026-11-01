@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:youtube_player_iframe/youtube_player_iframe.dart';
+import 'package:flutter/material.dart';
 
 void main() {
   runApp(const WorkoutApp());
@@ -163,6 +164,373 @@ class ApiService {
     }
   }
 }
+// ---------------------------------------------------------------------------
+// Главный экран приложения с нижней панелью навигации (в серых тонах)
+// ---------------------------------------------------------------------------
+class MainScreen extends StatefulWidget {
+  final ApiService apiService; // Предполагается, что у вас есть ваш ApiService
+
+  const MainScreen({super.key, required this.apiService});
+
+  @override
+  State<MainScreen> createState() => _MainScreenState();
+}
+
+class _MainScreenState extends State<MainScreen> {
+  // -1 = главный экран (ни одна вкладка не выбрана)
+  int _currentIndex = -1;
+
+  late final List<Widget> _screens;
+
+  @override
+  void initState() {
+    super.initState();
+    _screens = [
+      ExercisesScreen(apiService: widget.apiService), // План
+      const NutritionTabPlaceholder(),                // Питание
+      const StatisticsTabPlaceholder(),               // Статистика
+      const HistoryTabPlaceholder(),                  // История
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool onHome = _currentIndex < 0;
+
+    return PopScope(
+      // Пока мы не на главном экране, "назад" возвращает на главный, а не закрывает приложение
+      canPop: onHome,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) setState(() => _currentIndex = -1);
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFF0A0A18),
+        body: onHome
+            ? HomeDashboardTab(apiService: widget.apiService)
+            : _screens[_currentIndex],
+        bottomNavigationBar: NavigationBarTheme(
+          data: NavigationBarThemeData(
+            backgroundColor: const Color(0xFF0A0A18),
+            indicatorColor: onHome ? Colors.transparent : const Color(0xFF3A3768),
+            indicatorShape: const StadiumBorder(),
+            elevation: 0,
+            surfaceTintColor: Colors.transparent,
+            labelTextStyle: WidgetStateProperty.resolveWith((states) {
+              if (states.contains(WidgetState.selected) && !onHome) {
+                return const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 12);
+              }
+              return TextStyle(color: Colors.grey.shade400, fontSize: 12);
+            }),
+          ),
+          child: NavigationBar(
+            // NavigationBar не умеет "ничего не выбрано", поэтому на главной
+            // ставим 0, но визуально делаем его невыбранным (см. выше и ниже)
+            selectedIndex: onHome ? 0 : _currentIndex,
+            onDestinationSelected: (index) {
+              setState(() => _currentIndex = index);
+            },
+            destinations: [
+              NavigationDestination(
+                icon: const Icon(Icons.assignment_outlined, color: Colors.grey),
+                selectedIcon: Icon(
+                  onHome ? Icons.assignment_outlined : Icons.assignment,
+                  color: onHome ? Colors.grey : Colors.white,
+                ),
+                label: 'План',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.restaurant_outlined, color: Colors.grey),
+                selectedIcon: Icon(Icons.restaurant, color: Colors.white),
+                label: 'Питание',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.bar_chart_outlined, color: Colors.grey),
+                selectedIcon: Icon(Icons.bar_chart, color: Colors.white),
+                label: 'Статистика',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.history_outlined, color: Colors.grey),
+                selectedIcon: Icon(Icons.history, color: Colors.white),
+                label: 'История',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 1. Вкладка "План тренировок" (Главная панель с карточкой из макета)
+// ---------------------------------------------------------------------------
+class HomeDashboardTab extends StatelessWidget {
+  final ApiService apiService;
+
+  const HomeDashboardTab({super.key, required this.apiService});
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        // Фон с лёгким градиентом
+        Positioned.fill(
+          child: Container(
+            decoration: const BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [Color(0xFF0D0D26), Color(0xFF07070F)],
+              ),
+            ),
+          ),
+        ),
+
+        // Геометрическая сетка внизу (плавно проявляется снизу вверх)
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: 320,
+          child: ShaderMask(
+            shaderCallback: (rect) => const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Colors.transparent, Colors.white],
+            ).createShader(rect),
+            blendMode: BlendMode.dstIn,
+            child: CustomPaint(painter: _GridPainter(), size: Size.infinite),
+          ),
+        ),
+
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Column(
+              children: [
+                const SizedBox(height: 12),
+
+                // Логотип
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.directions_run, color: Colors.white, size: 28),
+                    const SizedBox(width: 8),
+                    Text(
+                      'SPORTIK',
+                      style: TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 2,
+                        color: Colors.white.withValues(alpha: 0.95),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const Spacer(flex: 2),
+
+                // Свечение + картинка
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(
+                      width: 300,
+                      height: 300,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        gradient: RadialGradient(
+                          colors: [
+                            const Color(0xFF4B3FBF).withValues(alpha: 0.55),
+                            const Color(0xFF4B3FBF).withValues(alpha: 0.0),
+                          ],
+                        ),
+                      ),
+                    ),
+                    Image.asset(
+                      'assets/images/back_muscles.png',
+                      width: 200,
+                      errorBuilder: (_, __, ___) => const Icon(
+                        Icons.accessibility_new_rounded,
+                        size: 130,
+                        color: Color(0xFFC8826B),
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 24),
+
+                // Тексты
+                const Text(
+                  'Добрый день, Игорь!',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Text(
+                  'Сегодня у вас по плану\nтренировка спины',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 20, color: Colors.white, height: 1.35),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Будь сильнее вчерашнего дня!',
+                  style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+                ),
+
+                const Spacer(flex: 3),
+
+                // Кнопка
+                Container(
+                  width: double.infinity,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(28),
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF4A4D58), Color(0xFF8A8E99), Color(0xFF4A4D58)],
+                    ),
+                    border: Border.all(
+                      color: const Color(0xFF5B6BC0).withValues(alpha: 0.8),
+                      width: 1.5,
+                    ),
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(28),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const WorkoutComingSoonScreen(),
+                          ),
+                        );
+                      },
+                      child: const Center(
+                        child: Text(
+                          'Начать тренировку',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class WorkoutComingSoonScreen extends StatelessWidget {
+  const WorkoutComingSoonScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFF0A0A18),
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: Colors.white,
+        title: const Text('Тренировка'),
+      ),
+      body: const Center(
+        child: Text(
+          'Скоро будет',
+          style: TextStyle(
+            fontSize: 26,
+            fontWeight: FontWeight.w600,
+            color: Colors.white70,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GridPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFF3B3F6B).withValues(alpha: 0.3)
+      ..strokeWidth = 1;
+
+    const step = 60.0;
+
+    // Вертикальные линии
+    for (double x = 0; x <= size.width; x += step) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+    // Диагонали
+    for (double x = -size.height; x <= size.width; x += step * 1.5) {
+      canvas.drawLine(Offset(x, size.height), Offset(x + size.height, 0), paint);
+      canvas.drawLine(Offset(x, 0), Offset(x + size.height, size.height), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+// ---------------------------------------------------------------------------
+// Заглушки для остальных вкладок
+// ---------------------------------------------------------------------------
+class NutritionTabPlaceholder extends StatelessWidget {
+  const NutritionTabPlaceholder({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Text('Раздел: Питание', style: TextStyle(color: Colors.grey, fontSize: 18)),
+    );
+  }
+}
+
+class StatisticsTabPlaceholderInfo extends StatelessWidget {
+  const StatisticsTabPlaceholderInfo({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Text('Раздел: Статистика', style: TextStyle(color: Colors.grey, fontSize: 18)),
+    );
+  }
+}
+
+// (Можете заменить эти заглушки на ваши существующие экраны упражнений или статистики)
+class StatisticsTabPlaceholder extends StatelessWidget {
+  const StatisticsTabPlaceholder({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Text('Раздел: Статистика', style: TextStyle(color: Colors.grey, fontSize: 18)),
+    );
+  }
+}
+
+class HistoryTabPlaceholder extends StatelessWidget {
+  const HistoryTabPlaceholder({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Text('Раздел: История тренировок', style: TextStyle(color: Colors.grey, fontSize: 18)),
+    );
+  }
+}
 
 // ---------------------------------------------------------------------------
 // 3. Виджет Видеоплеера
@@ -249,7 +617,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (success && mounted) {
       Navigator.pushReplacement(
         context,
-        MaterialPageRoute(builder: (context) => ExercisesScreen(apiService: _apiService)),
+        MaterialPageRoute(builder: (context) => MainScreen(apiService: _apiService)),
       );
     } else if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -417,7 +785,6 @@ class WorkoutApp extends StatelessWidget {
 }
 
 class ExercisesScreen extends StatefulWidget {
-
   final ApiService apiService;
 
   const ExercisesScreen({super.key, required this.apiService});
@@ -428,6 +795,9 @@ class ExercisesScreen extends StatefulWidget {
 
 class _ExercisesScreenState extends State<ExercisesScreen> {
   late Future<List<Exercise>> _exercisesFuture;
+
+  // Выбранная категория фильтра. По умолчанию "Все"
+  String _selectedCategory = 'Все';
 
   @override
   void initState() {
@@ -441,6 +811,7 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
     });
   }
 
+  // Модальное окно для добавления / редактирования
   void _showExerciseDialog({Exercise? exercise}) {
     final isEditing = exercise != null;
 
@@ -590,7 +961,6 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
                     style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
                   ),
                 ),
-                // Если упражнение личное — показываем кнопки управления, если общее — выводим звездочку
                 if (!exercise.isGeneral) ...[
                   IconButton(
                     icon: const Icon(Icons.edit, color: Colors.blue),
@@ -607,7 +977,10 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
                     },
                   ),
                 ] else ...[
-                  const Icon(Icons.star, color: Colors.amber, size: 28),
+                  const Tooltip(
+                    message: 'Базовое упражнение',
+                    child: Icon(Icons.star, color: Colors.amber, size: 28),
+                  ),
                 ],
               ],
             ),
@@ -687,41 +1060,122 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
             return const Center(child: Text('Список упражнений пуст'));
           }
 
-          final exercises = snapshot.data!;
-          return ListView.builder(
-            itemCount: exercises.length,
-            itemBuilder: (context, index) {
-              final item = exercises[index];
-              return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                child: ListTile(
-                  leading: const CircleAvatar(
-                    child: Icon(Icons.fitness_center),
-                  ),
-                  title: Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text('Группа мышц: ${item.muscleGroup}'),
-                  trailing: item.isGeneral
-                      ? const Tooltip(
-                    message: 'Базовое упражнение',
-                    child: Icon(Icons.star, color: Colors.amber),
-                  )
-                      : Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.edit_outlined, color: Colors.blue),
-                        onPressed: () => _showExerciseDialog(exercise: item),
+          final allExercises = snapshot.data!;
+
+          // Собираем уникальный список групп мышц для чипсов фильтра
+          final categories = ['Все', ...allExercises.map((e) => e.muscleGroup).toSet().toList()];
+
+          // Формируем элементы для отображения в зависимости от выбранного фильтра
+          List<dynamic> displayItems = [];
+
+          if (_selectedCategory == 'Все') {
+            // Группируем упражнения по группам мышц
+            final Map<String, List<Exercise>> grouped = {};
+            for (var ex in allExercises) {
+              grouped.putIfAbsent(ex.muscleGroup, () => []).add(ex);
+            }
+
+            // Заполняем список: сначала название группы (String), затем её упражнения (Exercise)
+            grouped.forEach((group, exercises) {
+              displayItems.add(group);
+              displayItems.addAll(exercises);
+            });
+          } else {
+            // Если выбрана конкретная категория, показываем только её упражнения
+            displayItems = allExercises.where((e) => e.muscleGroup == _selectedCategory).toList();
+          }
+
+          return Column(
+            children: [
+              // Горизонтальный список чипсов (фильтров)
+              Container(
+                height: 60,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: categories.length,
+                  itemBuilder: (context, index) {
+                    final category = categories[index];
+                    final isSelected = category == _selectedCategory;
+                    return Padding(
+                      padding: EdgeInsets.only(
+                        left: index == 0 ? 16 : 6,
+                        right: index == categories.length - 1 ? 16 : 6,
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.delete_outline, color: Colors.red),
-                        onPressed: () => _confirmDelete(item),
+                      child: ChoiceChip(
+                        label: Text(category),
+                        selected: isSelected,
+                        onSelected: (selected) {
+                          setState(() {
+                            _selectedCategory = category;
+                          });
+                        },
                       ),
-                    ],
-                  ),
-                  onTap: () => _showDetailsModal(item),
+                    );
+                  },
                 ),
-              );
-            },
+              ),
+              const Divider(height: 1),
+
+              // Список элементов (заголовки блоков + карточки упражнений)
+              Expanded(
+                child: displayItems.isEmpty
+                    ? const Center(child: Text('В этой категории пока нет упражнений'))
+                    : ListView.builder(
+                  itemCount: displayItems.length,
+                  itemBuilder: (context, index) {
+                    final item = displayItems[index];
+
+                    // Если элемент — строка, значит это заголовок блока (группа мышц)
+                    if (item is String) {
+                      return Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                        child: Text(
+                          item,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.deepPurple,
+                          ),
+                        ),
+                      );
+                    }
+
+                    // Иначе это карточка упражнения
+                    final exercise = item as Exercise;
+                    return Card(
+                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                      child: ListTile(
+                        leading: const CircleAvatar(
+                          child: Icon(Icons.fitness_center),
+                        ),
+                        title: Text(exercise.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        subtitle: Text('Группа мышц: ${exercise.muscleGroup}'),
+                        trailing: exercise.isGeneral
+                            ? const Tooltip(
+                          message: 'Базовое упражнение',
+                          child: Icon(Icons.star, color: Colors.amber),
+                        )
+                            : Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.edit_outlined, color: Colors.blue),
+                              onPressed: () => _showExerciseDialog(exercise: exercise),
+                            ),
+                            IconButton(
+                              icon: const Icon(Icons.delete_outline, color: Colors.red),
+                              onPressed: () => _confirmDelete(exercise),
+                            ),
+                          ],
+                        ),
+                        onTap: () => _showDetailsModal(exercise),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
           );
         },
       ),
@@ -732,3 +1186,5 @@ class _ExercisesScreenState extends State<ExercisesScreen> {
     );
   }
 }
+
+
